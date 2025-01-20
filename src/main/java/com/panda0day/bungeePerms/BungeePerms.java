@@ -141,7 +141,7 @@ public final class BungeePerms extends Plugin implements Listener {
 
     private void sendPermissions(ProxiedPlayer player, String permissions) {
         if (player != null && player.getServer() != null) {
-            String message = "setPermissions;" + permissions;
+            String message = "setPermissions;" + player.getUniqueId().toString() + ";" + permissions;
             player.getServer().sendData(getChannel(), message.getBytes(StandardCharsets.UTF_8));
         }
     }
