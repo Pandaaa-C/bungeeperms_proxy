@@ -1,17 +1,22 @@
 package com.panda0day.bungeePerms;
 
 import com.panda0day.bungeePerms.configs.DatabaseConfig;
+import com.panda0day.bungeePerms.groups.Group;
+import com.panda0day.bungeePerms.groups.GroupManager;
+import com.panda0day.bungeePerms.users.User;
 import com.panda0day.bungeePerms.utils.Database;
-import com.panda0day.bungeePerms.managers.UserManager;
+import com.panda0day.bungeePerms.users.UserManager;
 import net.md_5.bungee.api.connection.ProxiedPlayer;
 import net.md_5.bungee.api.connection.Server;
 import net.md_5.bungee.api.event.PluginMessageEvent;
+import net.md_5.bungee.api.event.PostLoginEvent;
 import net.md_5.bungee.api.event.ServerConnectedEvent;
 import net.md_5.bungee.api.plugin.Listener;
 import net.md_5.bungee.api.plugin.Plugin;
 import net.md_5.bungee.event.EventHandler;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -25,11 +30,12 @@ public final class BungeePerms extends Plugin implements Listener {
     private static DatabaseConfig databaseConfig;
     private static Database database;
 
-    private static UserManager permissionManager;
+    private static UserManager userManager;
+    private static GroupManager groupManager;
 
-    private final Map<String, String> prefixes = new HashMap<>();
-    private final Map<String, String> suffixes = new HashMap<>();
-    private final Map<String, List<String>> permissions = new HashMap<>();
+    private final Map<String, String> cachedPrefix = new HashMap<>();
+    private final Map<String, String> cachedSuffix = new HashMap<>();
+    private final Map<String, String> cachedPermissions = new HashMap<>();
 
 
     @Override
@@ -40,15 +46,11 @@ public final class BungeePerms extends Plugin implements Listener {
         getProxy().registerChannel(CHANNEL);
         getProxy().getPluginManager().registerListener(this, this);
 
-        prefixes.put("Panda0day", "§4Owner §8| §4");
-        suffixes.put("Panda0day", "§f");
-
-        permissions.put("Panda0day", List.of("bungeeperms.group", "bungeeperms.admin"));
-
         databaseConfig = new DatabaseConfig("database.yml");
         loadDatabase();
 
-        permissionManager = new UserManager();
+        userManager = new UserManager();
+        groupManager = new GroupManager();
     }
 
     @EventHandler
@@ -81,6 +83,31 @@ public final class BungeePerms extends Plugin implements Listener {
     }
 
     @EventHandler
+    public void onPostLogin(PostLoginEvent event) {
+        ProxiedPlayer player = event.getPlayer();
+        if (player == null) return;
+
+        User user = getUserManager().getUser(player.getUniqueId().toString());
+        if (user == null) return;
+
+        Group group = getGroupManager().getGroup(user.getGroup());
+        if (group == null) return;
+
+        cachedPrefix.put(player.getUniqueId().toString(), group.getPrefix());
+        cachedSuffix.put(player.getUniqueId().toString(), user.getSuffix());
+
+        List<String> groupPermissions = group.getPermissions();
+        List<String> userPermissions = user.getPermissions();
+
+        List<String> combinedPermissions = new ArrayList<>();
+        groupPermissions.stream().map(combinedPermissions::add);
+        userPermissions.stream().map(combinedPermissions::add);
+
+        String permissions = String.join(";", combinedPermissions);
+        cachedPermissions.put(player.getUniqueId().toString(), permissions);
+    }
+
+    @EventHandler
     public void onPlayerJoin(ServerConnectedEvent event) {
         ProxiedPlayer player = event.getPlayer();
 
@@ -88,11 +115,12 @@ public final class BungeePerms extends Plugin implements Listener {
             @Override
             public void run() {
                 // TODO: add logic to get users group settings, such as Prefix, Suffix, Group Permissions and User Permissions
-                String prefix = getPrefix(player.getName());
-                String suffix = getSuffix(player.getName());
+                String prefix = getPrefix(player.getUniqueId().toString());
+                String suffix = getSuffix(player.getUniqueId().toString());
+                String permissions = getPermissions(player.getUniqueId().toString());
 
                 sendPrefixSuffix(player, prefix, suffix);
-                sendPermissions(player, ["",""]);
+                sendPermissions(player, permissions);
             }
         }, 1, TimeUnit.SECONDS);
     }
@@ -111,9 +139,9 @@ public final class BungeePerms extends Plugin implements Listener {
         player.getServer().sendData(getChannel(), message.getBytes(StandardCharsets.UTF_8));
     }
 
-    private void sendPermissions(ProxiedPlayer player, String[] permissions) {
+    private void sendPermissions(ProxiedPlayer player, String permissions) {
         if (player != null && player.getServer() != null) {
-            String message = "setPermissions;" + String.join(";", permissions);
+            String message = "setPermissions;" + permissions;
             player.getServer().sendData(getChannel(), message.getBytes(StandardCharsets.UTF_8));
         }
     }
@@ -130,12 +158,15 @@ public final class BungeePerms extends Plugin implements Listener {
         database.connect();
     }
 
-    public String getPrefix(String playerName) {
-        return prefixes.getOrDefault(playerName, "");
+    public String getPrefix(String playerUuid) {
+        return cachedPermissions.getOrDefault(playerUuid, "");
     }
 
-    public String getSuffix(String playerName) {
-        return suffixes.getOrDefault(playerName, "");
+    public String getSuffix(String playerUuid) {
+        return cachedSuffix.getOrDefault(playerUuid, "");
+    }
+    public String getPermissions(String playerUuid) {
+        return cachedPermissions.getOrDefault(playerUuid, "");
     }
 
     public static String getChannel() {
@@ -152,5 +183,13 @@ public final class BungeePerms extends Plugin implements Listener {
 
     public static Database getDatabase() {
         return database;
+    }
+
+    public static UserManager getUserManager() {
+        return userManager;
+    }
+
+    public static GroupManager getGroupManager() {
+        return groupManager;
     }
 }
