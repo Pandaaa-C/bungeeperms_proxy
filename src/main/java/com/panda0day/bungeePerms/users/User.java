@@ -1,19 +1,21 @@
 package com.panda0day.bungeePerms.users;
 
+import com.panda0day.bungeePerms.BungeePerms;
+import com.panda0day.bungeePerms.groups.Group;
+
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
 public class User {
-    public String uuid;
-    public String suffix;
-    public String group;
-    public String permissions;
+    private final String uuid;
+    private Group group;
+    private final String permissions;
 
-    public User(String uuid, String suffix, String group, String permissions) {
+    public User(String uuid, int groupId, String permissions) {
         this.uuid = uuid;
-        this.suffix = suffix;
-        this.group = group;
+        this.group = BungeePerms.getGroupManager().getGroupById(groupId);
         this.permissions = permissions;
     }
 
@@ -21,16 +23,21 @@ public class User {
         return uuid;
     }
 
-    public String getSuffix() {
-        return suffix;
-    }
-
-    public String getGroup() {
+    public Group getGroup() {
         return group;
     }
 
+    public void setGroup(Group group) {
+        this.group = group;
+    }
+
+    public void setGroupById(int id) {
+        this.group = BungeePerms.getGroupManager().getGroupById(id);
+    }
+
     public List<String> getPermissions() {
-        return Arrays.asList(permissions.split(";"));
+        if (permissions == null || permissions.isEmpty()) return new ArrayList<>();
+        return new ArrayList<>(Arrays.asList(permissions.split(";")));
     }
 
     public String getPermissionsAsString() {
