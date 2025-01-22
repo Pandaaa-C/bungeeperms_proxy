@@ -1,5 +1,6 @@
 package com.panda0day.bungeePerms;
 
+import com.panda0day.bungeePerms.commands.PermissionsCommand;
 import com.panda0day.bungeePerms.configs.DatabaseConfig;
 import com.panda0day.bungeePerms.groups.Group;
 import com.panda0day.bungeePerms.groups.GroupManager;
@@ -8,6 +9,7 @@ import com.panda0day.bungeePerms.utils.Database;
 import com.panda0day.bungeePerms.users.UserManager;
 import net.md_5.bungee.api.connection.ProxiedPlayer;
 import net.md_5.bungee.api.connection.Server;
+import net.md_5.bungee.api.event.PermissionCheckEvent;
 import net.md_5.bungee.api.event.PluginMessageEvent;
 import net.md_5.bungee.api.event.PostLoginEvent;
 import net.md_5.bungee.api.event.ServerConnectedEvent;
@@ -49,8 +51,13 @@ public final class BungeePerms extends Plugin implements Listener {
         databaseConfig = new DatabaseConfig("database.yml");
         loadDatabase();
 
-        userManager = new UserManager();
         groupManager = new GroupManager();
+        groupManager.loadGroups();
+
+        userManager = new UserManager();
+        userManager.loadUsers();
+
+        getProxy().getPluginManager().registerCommand(this, new PermissionsCommand("bungeeperms"));
     }
 
     @EventHandler
@@ -90,18 +97,21 @@ public final class BungeePerms extends Plugin implements Listener {
         User user = getUserManager().getUser(player.getUniqueId().toString());
         if (user == null) return;
 
-        Group group = getGroupManager().getGroup(user.getGroup());
+        Group group = user.getGroup();
         if (group == null) return;
 
         cachedPrefix.put(player.getUniqueId().toString(), group.getPrefix());
-        cachedSuffix.put(player.getUniqueId().toString(), user.getSuffix());
+        cachedSuffix.put(player.getUniqueId().toString(), group.getSuffix());
 
         List<String> groupPermissions = group.getPermissions();
         List<String> userPermissions = user.getPermissions();
-
         List<String> combinedPermissions = new ArrayList<>();
-        groupPermissions.stream().map(combinedPermissions::add);
-        userPermissions.stream().map(combinedPermissions::add);
+        if (!groupPermissions.isEmpty()) {
+            combinedPermissions.addAll(groupPermissions);
+        }
+        if (!userPermissions.isEmpty()) {
+            combinedPermissions.addAll(userPermissions);
+        }
 
         String permissions = String.join(";", combinedPermissions);
         cachedPermissions.put(player.getUniqueId().toString(), permissions);
@@ -111,46 +121,65 @@ public final class BungeePerms extends Plugin implements Listener {
     public void onPlayerJoin(ServerConnectedEvent event) {
         ProxiedPlayer player = event.getPlayer();
 
+        sendPrefixSuffix(player);
+        sendPermissions(player);
+    }
+
+    @EventHandler
+    public void onPermissionCheck(PermissionCheckEvent event) {
+          if ((event.getSender() instanceof ProxiedPlayer player)) {
+              event.setHasPermission(hasPermission(player, event.getPermission()));
+          }
+    }
+
+    private void sendPrefixSuffix(ProxiedPlayer player) {
         getProxy().getScheduler().schedule(this, new Runnable() {
             @Override
             public void run() {
                 // TODO: add logic to get users group settings, such as Prefix, Suffix, Group Permissions and User Permissions
                 String prefix = getPrefix(player.getUniqueId().toString());
                 String suffix = getSuffix(player.getUniqueId().toString());
-                String permissions = getPermissions(player.getUniqueId().toString());
 
-                sendPrefixSuffix(player, prefix, suffix);
-                sendPermissions(player, permissions);
+                if (prefix.isEmpty()) {
+                    prefix = "§r";
+                }
+
+                if (suffix.isEmpty()) {
+                    suffix = "§r";
+                }
+
+                String message = "setSuffixPrefix;" + player.getUniqueId().toString() + ";" + prefix + ";" + suffix;
+                player.getServer().sendData(getChannel(), message.getBytes(StandardCharsets.UTF_8));
             }
         }, 1, TimeUnit.SECONDS);
     }
 
-    private void sendPrefixSuffix(ProxiedPlayer player, String prefix, String suffix) {
-        String playerName = player.getName();
-        if (prefix.isEmpty()) {
-            prefix = "§r";
-        }
+    private void sendPermissions(ProxiedPlayer player) {
+        getProxy().getScheduler().schedule(this, new Runnable() {
+            @Override
+            public void run() {
+                if (player != null && player.getServer() != null) {
+                    String permissions = String.join(";", cachedPermissions.get(player.getUniqueId().toString()));
+                    String message = "setPermissions;" + player.getUniqueId().toString() + ";" + permissions;
+                    player.getServer().sendData(getChannel(), message.getBytes(StandardCharsets.UTF_8));
+                }
+            }
+        }, 3, TimeUnit.SECONDS);
 
-        if (suffix.isEmpty()) {
-            suffix = "§r";
-        }
-
-        String message = "setSuffixPrefix;" + playerName + ";" + prefix + ";" + suffix;
-        player.getServer().sendData(getChannel(), message.getBytes(StandardCharsets.UTF_8));
     }
 
-    private void sendPermissions(ProxiedPlayer player, String permissions) {
-        if (player != null && player.getServer() != null) {
-            String message = "setPermissions;" + player.getUniqueId().toString() + ";" + permissions;
-            player.getServer().sendData(getChannel(), message.getBytes(StandardCharsets.UTF_8));
-        }
+    private boolean hasPermission(ProxiedPlayer player, String permission) {
+        if (!cachedPermissions.containsKey(player.getUniqueId().toString())) return false;
+
+        List<String> permissions = List.of(cachedPermissions.get(player.getUniqueId().toString()).split(";"));
+        return permissions.contains(permission) || permissions.contains("*");
     }
 
     private void loadDatabase() {
         database = new Database(
                 getDatabaseConfig().getString("database.host"),
                 getDatabaseConfig().getString("database.user"),
-                getDatabaseConfig().getString("database.pass"),
+                getDatabaseConfig().getString("database.password"),
                 getDatabaseConfig().getInt("database.port"),
                 getDatabaseConfig().getString("database.name")
         );
@@ -159,7 +188,7 @@ public final class BungeePerms extends Plugin implements Listener {
     }
 
     public String getPrefix(String playerUuid) {
-        return cachedPermissions.getOrDefault(playerUuid, "");
+        return cachedPrefix.getOrDefault(playerUuid, "");
     }
 
     public String getSuffix(String playerUuid) {
@@ -167,6 +196,10 @@ public final class BungeePerms extends Plugin implements Listener {
     }
     public String getPermissions(String playerUuid) {
         return cachedPermissions.getOrDefault(playerUuid, "");
+    }
+
+    public void updatePermissions(String playerUuid, String permissions) {
+        cachedPermissions.put(playerUuid, permissions);
     }
 
     public static String getChannel() {

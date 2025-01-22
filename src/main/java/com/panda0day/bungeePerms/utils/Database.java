@@ -1,6 +1,8 @@
 package com.panda0day.bungeePerms.utils;
 
 import com.panda0day.bungeePerms.BungeePerms;
+import com.panda0day.bungeePerms.groups.GroupManager;
+import com.panda0day.bungeePerms.users.UserManager;
 
 import java.sql.*;
 
@@ -24,7 +26,7 @@ public class Database {
 
     public void connect() {
         if (isConnected()) {
-            System.out.println("Database already connected.");
+            BungeePerms.getInstance().getLogger().warning("Database is already connected!");
             return;
         }
 
@@ -105,5 +107,7 @@ public class Database {
     }
 
     private void createDefaultTables() {
+        GroupManager.createDefaultTable();
+        UserManager.createDefaultTable();
     }
 }
